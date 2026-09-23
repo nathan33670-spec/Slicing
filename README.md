@@ -25,19 +25,41 @@ Fonctionne avec **Docker Desktop pour Mac** et **Synology (Container Manager)**.
 | `proxy/nginx.conf`      | Relais TCP vers le slicer                               |
 | `.env.example`          | Réglages (IP d'écoute, ports, mot de passe, PUID/PGID)  |
 | `verifier-isolation.sh` | Vérifie que le slicer n'a pas accès à Internet          |
+| `installer.sh` / `Installer.command` | Installation hors-ligne (double-clic sur Mac) |
 | `exporter-images.sh`    | Prépare les images pour une machine sans Internet       |
+| `.github/workflows/`    | Fabrique le zip autonome publié dans les Releases       |
 | `projets/`              | Vos fichiers STL/3MF et G-code (visible sous `/projets`) |
-
-> Seul l'hôte (Mac ou NAS) a besoin d'Internet, **une seule fois**, pour
-> télécharger les images. Sinon, utilisez `exporter-images.sh` (voir plus bas).
-> Les conteneurs eux-mêmes ne sortent jamais sur Internet.
 
 ---
 
-## Installation sur Mac (Docker Desktop)
+## Paquet autonome hors-ligne (recommandé)
+
+À chaque modification de `main`, GitHub fabrique automatiquement un zip
+**autonome** : la configuration, les images Docker et l'installeur. Le
+Mac ou le NAS n'a besoin d'**aucun** accès Internet.
+
+1. Depuis une machine connectée, téléchargez `slicer3d-hors-ligne.zip` depuis
+   la page **Releases → « hors-ligne »** du dépôt GitHub. Si la Release
+   propose plusieurs parties `.zip.part00`, `.part01`…, téléchargez-les toutes
+   puis recollez-les dans le Terminal :
+   `cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip`
+2. Copiez le zip sur le Mac (clé USB…) et décompressez-le.
+3. Lancez Docker Desktop, puis **double-cliquez sur `Installer.command`**. Si
+   macOS bloque le fichier : clic droit → Ouvrir. Vous pouvez aussi lancer
+   `./installer.sh` dans le Terminal.
+4. Ouvrez **http://localhost:3000**.
+
+L'installeur charge les images depuis le dossier `images/` (`docker load`),
+crée `.env`, puis démarre avec `docker compose up -d --pull never`. Aucun
+téléchargement n'est tenté.
+
+---
+
+## Installation sur Mac (Docker Desktop) sans le paquet
+
+À utiliser si le Mac a Internet ou si les images sont déjà chargées :
 
 ```sh
-git clone <ce dépôt> slicer3d && cd slicer3d
 cp .env.example .env          # les valeurs par défaut conviennent pour le Mac
 docker compose up -d
 ```
@@ -79,14 +101,13 @@ Si le port 3000 ou 3001 est déjà pris sur le NAS, changez `HTTP_PORT` ou
 
 ### NAS sans accès Internet du tout
 
-Sur le Mac (avec Internet) :
-```sh
-./exporter-images.sh          # crée slicer3d-images.tar
-```
-Copiez `slicer3d-images.tar` sur le NAS, puis en SSH :
-```sh
-sudo docker load -i slicer3d-images.tar
-```
+Utilisez le même zip hors-ligne. Décompressez-le dans `docker/slicer3d`,
+puis chargez les deux images de l'une de ces deux façons :
+
+- Dans **Container Manager → Image → Ajouter → Ajouter à partir d'un fichier**,
+  importez `images/orcaslicer.tar` puis `images/proxy.tar`.
+- En SSH : `cd /volume1/docker/slicer3d && sudo ./installer.sh`.
+
 Créez ensuite le projet comme ci-dessus. Aucun téléchargement ne sera tenté.
 
 ---

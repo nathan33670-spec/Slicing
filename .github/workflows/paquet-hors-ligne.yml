@@ -1,0 +1,56 @@
+# Fabrique un zip AUTONOME (config + images Docker + installeur) pour une
+# machine sans Internet, et le publie dans la Release "hors-ligne".
+name: Paquet hors-ligne
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  paquet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Télécharger et exporter les images (amd64)
+        run: |
+          set -e
+          ORCA=$(sed -n 's/^ORCA_IMAGE=//p' .env.example)
+          PROXY=$(sed -n 's/^PROXY_IMAGE=//p' .env.example)
+          docker pull --platform linux/amd64 "$ORCA"
+          docker pull --platform linux/amd64 "$PROXY"
+          mkdir -p images
+          docker save -o images/orcaslicer.tar "$ORCA"
+          docker save -o images/proxy.tar "$PROXY"
+          ls -lh images
+
+      - name: Construire le zip
+        run: |
+          set -e
+          D=slicer3d-hors-ligne
+          mkdir "$D"
+          cp -r docker-compose.yml proxy .env.example README.md installer.sh \
+                Installer.command verifier-isolation.sh exporter-images.sh images "$D"/
+          mkdir -p "$D/projets" "$D/data/config"
+          zip -r -1 "$D.zip" "$D"
+          ls -lh "$D.zip"
+          # Limite GitHub : 2 Go par fichier de Release -> découpage si besoin
+          if [ "$(stat -c %s "$D.zip")" -gt 2000000000 ]; then
+            split -b 1900m -d -a 2 "$D.zip" "$D.zip.part"
+            rm "$D.zip"
+          fi
+          ls -lh "$D".zip*
+
+      - name: Publier la Release "hors-ligne"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete hors-ligne --yes --cleanup-tag || true
+          gh release create hors-ligne slicer3d-hors-ligne.zip* \
+            --title "Paquet hors-ligne (OrcaSlicer + Artillery X2)" \
+            --notes "Zip autonome : décompresser puis lancer Installer.command (Mac) ou installer.sh. Si le zip est en plusieurs parties : cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip" \
+            --target "${{ github.sha }}"
