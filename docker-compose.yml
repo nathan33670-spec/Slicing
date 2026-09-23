@@ -3,22 +3,27 @@
 #   navigateur ──► [proxy] ──(réseau "isole", internal: true)──► [orcaslicer]
 #                                                              └─► [fichiers]
 #
-# - AUCUN dossier du Mac/NAS n'est monté dans les conteneurs : les fichiers
+# Tout se lance avec UNE commande :   docker compose up -d
+#
+# - 100 % hors-ligne : les images sont RECONSTRUITES localement à partir du
+#   dossier images/ fourni dans le zip (rien n'est téléchargé).
+# - Aucun dossier du Mac/NAS n'est monté dans les conteneurs : les fichiers
 #   entrent et sortent uniquement via le navigateur (service "fichiers"),
 #   et sont stockés dans des volumes Docker internes.
 # - Le conteneur "orcaslicer" n'est branché QUE sur le réseau "isole",
-#   déclaré `internal: true` : Docker ne lui donne aucune route vers
-#   l'extérieur (ni Internet, ni votre LAN).
-# - Le conteneur "proxy" (nginx) relaie simplement les connexions TCP du
-#   navigateur vers le slicer. C'est le seul à publier des ports.
+#   déclaré `internal: true` : aucune route vers Internet ni vers le LAN.
+# - Le conteneur "proxy" (nginx) relaie les connexions du navigateur ; c'est
+#   le seul à publier des ports.
 
 name: slicer3d
 
 services:
   orcaslicer:
-    image: ${ORCA_IMAGE:-lscr.io/linuxserver/orcaslicer:latest}
-    # L'image n'existe qu'en amd64. Sur Mac Apple Silicon, Docker Desktop
-    # l'exécute via l'émulation (Rosetta) ; sur Synology Intel/AMD c'est natif.
+    image: slicer3d/orcaslicer:local
+    build:
+      context: ./images/orcaslicer
+    # Image amd64 : native sur Synology Intel/AMD, émulée (Rosetta) sur Mac
+    # Apple Silicon.
     platform: linux/amd64
     container_name: slicer3d-orcaslicer
     restart: unless-stopped
@@ -27,7 +32,7 @@ services:
       - PGID=${PGID:-1000}
       - TZ=${TZ:-Europe/Paris}
       - TITLE=OrcaSlicer - Artillery X2
-      # Identifiants demandés par le navigateur (laisser vide = pas de mot de passe)
+      # Identifiants demandés par le navigateur (vide = pas de mot de passe)
       - CUSTOM_USER=${SLICER_USER:-}
       - PASSWORD=${SLICER_PASSWORD:-}
       - UMASK=000                      # fichiers créés modifiables par "fichiers"
@@ -39,45 +44,84 @@ services:
       - seccomp:unconfined             # recommandé par linuxserver pour les apps GUI
     networks:
       - isole
-    # Aucun "ports:" ici volontairement : le slicer n'est joignable que via le proxy.
+    # Aucun "ports:" ici volontairement : joignable uniquement via le proxy.
 
-  # Page web pour envoyer / télécharger des fichiers (même image que le proxy).
+  # Page web pour envoyer / télécharger des fichiers.
   fichiers:
-    image: ${PROXY_IMAGE:-nginx:1.27-alpine}
+    image: slicer3d/fichiers:local
+    build:
+      context: ./images/nginx
+      additional_contexts:
+        app: ./fichiers
+      dockerfile_inline: |
+        FROM scratch
+        ADD rootfs.tar.gz /
+        COPY --from=app . /fichiers
     platform: linux/amd64
     container_name: slicer3d-fichiers
     restart: unless-stopped
     entrypoint: ["/bin/sh", "/fichiers/start.sh"]
+    stop_signal: SIGQUIT
     environment:
       - SLICER_USER=${SLICER_USER:-}
       - SLICER_PASSWORD=${SLICER_PASSWORD:-}
     volumes:
-      - ./fichiers:/fichiers:ro        # code de la page (lecture seule)
       - echange:/echange
     networks:
       - isole
 
   proxy:
-    image: ${PROXY_IMAGE:-nginx:1.27-alpine}
+    image: slicer3d/proxy:local
+    build:
+      context: ./images/nginx
+      additional_contexts:
+        conf: ./proxy
+      dockerfile_inline: |
+        FROM scratch
+        ADD rootfs.tar.gz /
+        COPY --from=conf nginx.conf /etc/nginx/nginx.conf
     platform: linux/amd64
     container_name: slicer3d-proxy
     restart: unless-stopped
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    stop_signal: SIGQUIT
     depends_on:
       - orcaslicer
       - fichiers
-    volumes:
-      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       # BIND_IP=127.0.0.1 : accessible uniquement depuis la machine (Mac)
       # BIND_IP=0.0.0.0   : accessible depuis le réseau local (Synology)
-      - "${BIND_IP:-127.0.0.1}:${HTTP_PORT:-3000}:3000"    # http  (localhost)
-      - "${BIND_IP:-127.0.0.1}:${HTTPS_PORT:-3001}:3001"   # https (autre machine du LAN)
+      - "${BIND_IP:-127.0.0.1}:${HTTP_PORT:-3000}:3000"    # slicer, http  (localhost)
+      - "${BIND_IP:-127.0.0.1}:${HTTPS_PORT:-3001}:3001"   # slicer, https (autre machine du LAN)
       - "${BIND_IP:-127.0.0.1}:${FILES_PORT:-3002}:3002"   # page d'échange de fichiers
     security_opt:
       - no-new-privileges:true
     networks:
       - isole
       - acces
+
+  # Vérification de l'isolation, à lancer à la demande :
+  #   docker compose run --rm verification
+  verification:
+    image: slicer3d/fichiers:local
+    pull_policy: never
+    platform: linux/amd64
+    profiles: ["verification"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Test depuis le réseau du slicer (réseau isole)..."
+        ok=1
+        for cible in http://1.1.1.1 http://example.com https://www.google.com; do
+          if wget -q -T 6 -O /dev/null "$$cible" 2>/dev/null; then
+            echo "  ÉCHEC : $$cible est joignable !"; ok=0
+          else
+            echo "  OK    : $$cible injoignable"
+          fi
+        done
+        if [ $$ok = 1 ]; then echo "RÉSULTAT : isolé, aucun accès Internet."; else echo "RÉSULTAT : PAS isolé !"; exit 1; fi
+    networks:
+      - isole
 
 volumes:
   slicer-config:
