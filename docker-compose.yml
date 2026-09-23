@@ -1,0 +1,64 @@
+# Slicer 3D (OrcaSlicer) accessible via navigateur, SANS accès Internet.
+#
+#   navigateur ──► [proxy] ──(réseau "isole", internal: true)──► [orcaslicer]
+#
+# - Le conteneur "orcaslicer" n'est branché QUE sur le réseau "isole",
+#   déclaré `internal: true` : Docker ne lui donne aucune route vers
+#   l'extérieur (ni Internet, ni votre LAN).
+# - Le conteneur "proxy" (nginx) relaie simplement les connexions TCP du
+#   navigateur vers le slicer. C'est le seul à publier des ports.
+
+name: slicer3d
+
+services:
+  orcaslicer:
+    image: ${ORCA_IMAGE:-lscr.io/linuxserver/orcaslicer:latest}
+    # L'image n'existe qu'en amd64. Sur Mac Apple Silicon, Docker Desktop
+    # l'exécute via l'émulation (Rosetta) ; sur Synology Intel/AMD c'est natif.
+    platform: linux/amd64
+    container_name: slicer3d-orcaslicer
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-Europe/Paris}
+      - TITLE=OrcaSlicer - Artillery X2
+      # Identifiants demandés par le navigateur (laisser vide = pas de mot de passe)
+      - CUSTOM_USER=${SLICER_USER:-}
+      - PASSWORD=${SLICER_PASSWORD:-}
+    volumes:
+      - ./data/config:/config          # réglages, profils, préférences
+      - ./projets:/projets             # vos STL/3MF et G-code générés
+    shm_size: "1gb"
+    security_opt:
+      - seccomp:unconfined             # recommandé par linuxserver pour les apps GUI
+    networks:
+      - isole
+    # Aucun "ports:" ici volontairement : le slicer n'est joignable que via le proxy.
+
+  proxy:
+    image: ${PROXY_IMAGE:-nginx:1.27-alpine}
+    container_name: slicer3d-proxy
+    restart: unless-stopped
+    depends_on:
+      - orcaslicer
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      # BIND_IP=127.0.0.1 : accessible uniquement depuis la machine (Mac)
+      # BIND_IP=0.0.0.0   : accessible depuis le réseau local (Synology)
+      - "${BIND_IP:-127.0.0.1}:${HTTP_PORT:-3000}:3000"    # http  (localhost)
+      - "${BIND_IP:-127.0.0.1}:${HTTPS_PORT:-3001}:3001"   # https (autre machine du LAN)
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - isole
+      - acces
+
+networks:
+  # Réseau sans passerelle vers l'extérieur.
+  isole:
+    internal: true
+  # Réseau nécessaire pour publier les ports du proxy vers l'hôte.
+  acces:
+    driver: bridge
