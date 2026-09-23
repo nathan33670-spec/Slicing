@@ -1,5 +1,7 @@
-# Fabrique un zip AUTONOME (config + images Docker + installeur) pour une
-# machine sans Internet, et le publie dans la Release "hors-ligne".
+# Fabrique un zip AUTONOME pour une machine sans Internet, utilisable avec
+# la seule commande `docker compose up -d` (aucun script à exécuter).
+# Chaque image est fournie sous forme de système de fichiers exporté
+# (rootfs.tar.gz) que docker compose reconstruit localement, hors-ligne.
 name: Paquet hors-ligne
 
 on:
@@ -10,32 +12,68 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: paquet-hors-ligne
+  cancel-in-progress: true
+
 jobs:
   paquet:
     runs-on: ubuntu-latest
+    env:
+      ORCA_IMAGE: lscr.io/linuxserver/orcaslicer:latest
+      NGINX_IMAGE: nginx:1.27-alpine
+      D: slicer3d-hors-ligne
     steps:
       - uses: actions/checkout@v4
 
-      - name: Télécharger et exporter les images (amd64)
+      - name: Exporter les images (amd64) en systèmes de fichiers
         run: |
           set -e
-          ORCA=$(sed -n 's/^ORCA_IMAGE=//p' .env.example)
-          PROXY=$(sed -n 's/^PROXY_IMAGE=//p' .env.example)
-          docker pull --platform linux/amd64 "$ORCA"
-          docker pull --platform linux/amd64 "$PROXY"
-          mkdir -p images
-          docker save -o images/orcaslicer.tar "$ORCA"
-          docker save -o images/proxy.tar "$PROXY"
-          ls -lh images
+          export_image() {  # $1 = image, $2 = dossier de destination
+            docker pull --platform linux/amd64 "$1"
+            mkdir -p "$2"
+            cid=$(docker create --platform linux/amd64 "$1")
+            docker export "$cid" | gzip -6 > "$2/rootfs.tar.gz"
+            docker rm "$cid"
+          }
+          export_image "$ORCA_IMAGE"  "$D/images/orcaslicer"
+          python3 .github/scripts/generer-dockerfile.py "$ORCA_IMAGE" > "$D/images/orcaslicer/Dockerfile"
+          cat "$D/images/orcaslicer/Dockerfile"
+          export_image "$NGINX_IMAGE" "$D/images/nginx"
+          du -sh "$D"/images/*
+
+      - name: Assembler le paquet
+        run: |
+          set -e
+          cp -r docker-compose.yml proxy fichiers README.md .env.example "$D"/
+          cp .env.example "$D/.env"
+
+      - name: Test - construction et démarrage hors-ligne
+        run: |
+          set -e
+          cd "$D"
+          # On supprime les images téléchargées : tout doit venir du paquet.
+          docker rmi -f "$ORCA_IMAGE" "$NGINX_IMAGE"
+          docker compose up -d
+          echo "Attente du démarrage du slicer..."
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)
+            [ "$code" = 200 ] && break
+            sleep 5
+          done
+          echo "Slicer (port 3000) : HTTP $code"
+          docker compose ps
+          docker compose logs --tail 40 orcaslicer
+          [ "$code" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/)" = 200 ]
+          docker compose run --rm verification
+          docker compose down -v
+          docker rmi -f slicer3d/orcaslicer:local slicer3d/fichiers:local slicer3d/proxy:local
 
       - name: Construire le zip
         run: |
           set -e
-          D=slicer3d-hors-ligne
-          mkdir "$D"
-          cp -r docker-compose.yml proxy fichiers .env.example README.md installer.sh \
-                Installer.command verifier-isolation.sh exporter-images.sh images "$D"/
-          zip -r -1 "$D.zip" "$D"
+          zip -r -0 "$D.zip" "$D"
           ls -lh "$D.zip"
           # Limite GitHub : 2 Go par fichier de Release -> découpage si besoin
           if [ "$(stat -c %s "$D.zip")" -gt 2000000000 ]; then
@@ -51,5 +89,5 @@ jobs:
           gh release delete hors-ligne --yes --cleanup-tag || true
           gh release create hors-ligne slicer3d-hors-ligne.zip* \
             --title "Paquet hors-ligne (OrcaSlicer + Artillery X2)" \
-            --notes "Zip autonome : décompresser puis lancer Installer.command (Mac) ou installer.sh. Si le zip est en plusieurs parties : cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip" \
+            --notes "Zip autonome : décompresser, puis dans le Terminal, depuis le dossier : docker compose up -d. Aucun script, aucun téléchargement. Si le zip est en plusieurs parties : cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip" \
             --target "${{ github.sha }}"
