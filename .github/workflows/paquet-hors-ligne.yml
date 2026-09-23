@@ -91,3 +91,56 @@ jobs:
             --title "Paquet hors-ligne (OrcaSlicer + Artillery X2)" \
             --notes "Zip autonome : décompresser, puis dans le Terminal, depuis le dossier : docker compose up -d. Aucun script, aucun téléchargement. Si le zip est en plusieurs parties : cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip" \
             --target "${{ github.sha }}"
+
+  # Variante Synology : le NAS a Internet et télécharge lui-même les images.
+  # Testée avec le moteur de construction "classique" (celui de Container
+  # Manager), puis publiée dans la Release "synology".
+  synology:
+    runs-on: ubuntu-latest
+    env:
+      D: slicer3d-synology
+      DOCKER_BUILDKIT: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assembler le paquet
+        run: |
+          set -e
+          mkdir "$D"
+          cp docker-compose.synology.yml "$D/docker-compose.yml"
+          cp -r proxy fichiers README.md "$D"/
+          sed -e 's/^BIND_IP=.*/BIND_IP=0.0.0.0/' \
+              -e 's/^PUID=.*/PUID=1026/' \
+              -e 's/^PGID=.*/PGID=100/' .env.example > "$D/.env"
+          cp "$D/.env" "$D/.env.example"
+          cat "$D/.env"
+
+      - name: Test - construction (moteur classique) et démarrage
+        run: |
+          set -e
+          cd "$D"
+          docker compose up -d
+          echo "Attente du démarrage du slicer..."
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:3001/ || true)
+            [ "$code" = 200 ] && break
+            sleep 5
+          done
+          echo "Slicer (https 3001) : HTTP $code"
+          docker compose ps
+          [ "$code" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/)" = 200 ]
+          docker compose run --rm verification
+          docker compose down -v
+
+      - name: Publier la Release "synology"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          zip -r "$D.zip" "$D"
+          gh release delete synology --yes --cleanup-tag || true
+          gh release create synology "$D.zip" \
+            --title "Paquet Synology (OrcaSlicer + Artillery X2)" \
+            --notes "Pour Synology avec Internet : décompresser dans /docker/slicer3d, mettre un mot de passe dans .env, puis Container Manager → Projet → Créer (docker-compose.yml existant). Les images sont téléchargées par le NAS ; les conteneurs restent sans Internet." \
+            --target "${{ github.sha }}"
