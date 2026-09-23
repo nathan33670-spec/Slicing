@@ -33,9 +33,8 @@ jobs:
           set -e
           D=slicer3d-hors-ligne
           mkdir "$D"
-          cp -r docker-compose.yml proxy .env.example README.md installer.sh \
+          cp -r docker-compose.yml proxy fichiers .env.example README.md installer.sh \
                 Installer.command verifier-isolation.sh exporter-images.sh images "$D"/
-          mkdir -p "$D/projets" "$D/data/config"
           zip -r -1 "$D.zip" "$D"
           ls -lh "$D.zip"
           # Limite GitHub : 2 Go par fichier de Release -> découpage si besoin

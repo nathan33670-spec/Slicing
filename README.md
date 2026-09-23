@@ -6,7 +6,8 @@ Fonctionne avec **Docker Desktop pour Mac** et **Synology (Container Manager)**.
 
 ```
  Navigateur ──► proxy (nginx) ──[réseau "isole", internal: true]──► orcaslicer
-                  ports 3000/3001                                     aucune sortie
+              ports 3000/3001/3002                              └──► fichiers
+                                                                  aucune sortie
 ```
 
 - `orcaslicer` n'est relié qu'au réseau `isole`, déclaré `internal: true` :
@@ -14,6 +15,9 @@ Fonctionne avec **Docker Desktop pour Mac** et **Synology (Container Manager)**.
   votre réseau local, et ne publie aucun port.
 - `proxy` est un simple relais TCP nginx. C'est le seul conteneur joignable
   depuis votre navigateur.
+- **Aucun dossier du Mac ou du NAS n'est monté dans les conteneurs.** Les
+  fichiers entrent et sortent **uniquement par le navigateur**, grâce à la page
+  « Fichiers » (port 3002). Ils sont stockés dans des volumes Docker internes.
 - OrcaSlicer intègre le profil **Artillery Sidewinder X2** : le slicer n'a pas
   besoin d'Internet pour fonctionner.
 
@@ -21,14 +25,14 @@ Fonctionne avec **Docker Desktop pour Mac** et **Synology (Container Manager)**.
 
 | Fichier                 | Rôle                                                    |
 |-------------------------|---------------------------------------------------------|
-| `docker-compose.yml`    | Les 2 conteneurs et les 2 réseaux                       |
-| `proxy/nginx.conf`      | Relais TCP vers le slicer                               |
+| `docker-compose.yml`    | Les 3 conteneurs, les volumes et les 2 réseaux         |
+| `proxy/nginx.conf`      | Relais TCP vers le slicer et la page fichiers          |
 | `.env.example`          | Réglages (IP d'écoute, ports, mot de passe, PUID/PGID)  |
 | `verifier-isolation.sh` | Vérifie que le slicer n'a pas accès à Internet          |
 | `installer.sh` / `Installer.command` | Installation hors-ligne (double-clic sur Mac) |
 | `exporter-images.sh`    | Prépare les images pour une machine sans Internet       |
+| `fichiers/`             | Page web d'envoi et de téléchargement de fichiers       |
 | `.github/workflows/`    | Fabrique le zip autonome publié dans les Releases       |
-| `projets/`              | Vos fichiers STL/3MF et G-code (visible sous `/projets`) |
 
 ---
 
@@ -47,7 +51,8 @@ Mac ou le NAS n'a besoin d'**aucun** accès Internet.
 3. Lancez Docker Desktop, puis **double-cliquez sur `Installer.command`**. Si
    macOS bloque le fichier : clic droit → Ouvrir. Vous pouvez aussi lancer
    `./installer.sh` dans le Terminal.
-4. Ouvrez **http://localhost:3000**.
+4. Ouvrez **http://localhost:3000** pour le slicer et
+   **http://localhost:3002** pour les fichiers.
 
 L'installeur charge les images depuis le dossier `images/` (`docker load`),
 crée `.env`, puis démarre avec `docker compose up -d --pull never`. Aucun
@@ -64,7 +69,8 @@ cp .env.example .env          # les valeurs par défaut conviennent pour le Mac
 docker compose up -d
 ```
 
-Ouvrez ensuite **http://localhost:3000**.
+Ouvrez ensuite **http://localhost:3000** pour le slicer et
+**http://localhost:3002** pour les fichiers.
 
 - Par défaut l'accès est limité au Mac (`BIND_IP=127.0.0.1`).
 - Sur un Mac Apple Silicon (M1/M2/M3/M4), l'image amd64 tourne via
@@ -76,7 +82,7 @@ Ouvrez ensuite **http://localhost:3000**.
 ## Installation sur Synology (Container Manager, DSM 7.2+)
 
 1. Dans **File Station**, créez `docker/slicer3d` et copiez-y tous les fichiers
-   du dépôt. Créez aussi les dossiers vides `data/config` et `projets`.
+   du dépôt (ou du zip hors-ligne).
 2. Créez le fichier `.env` à partir de `.env.example` et modifiez :
    ```
    BIND_IP=0.0.0.0
@@ -88,16 +94,17 @@ Ouvrez ensuite **http://localhost:3000**.
 3. **Container Manager → Projet → Créer**. Choisissez le chemin
    `docker/slicer3d` et « Utiliser le docker-compose.yml existant », puis
    lancez le projet.
-4. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001**. Acceptez
-   l'avertissement du certificat auto-signé.
+4. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001** pour le
+   slicer. Acceptez l'avertissement du certificat auto-signé. Les fichiers
+   sont sur **http://IP-DU-NAS:3002**.
 
 > **Pourquoi HTTPS depuis une autre machine ?** Le bureau web a besoin d'un
 > « contexte sécurisé » du navigateur. `http://localhost` en est un, mais
 > `http://IP-du-NAS` n'en est pas un. Depuis le Mac, utilisez `:3000` ;
 > depuis le LAN, utilisez `https://…:3001`.
 
-Si le port 3000 ou 3001 est déjà pris sur le NAS, changez `HTTP_PORT` ou
-`HTTPS_PORT` dans `.env`.
+Si le port 3000, 3001 ou 3002 est déjà pris sur le NAS, changez `HTTP_PORT`,
+`HTTPS_PORT` ou `FILES_PORT` dans `.env`.
 
 ### NAS sans accès Internet du tout
 
@@ -129,22 +136,30 @@ Relancer l'assistant plus tard : menu *Fichier → Assistant de configuration*.
 
 ## Utilisation au quotidien
 
-- **Importer un modèle** : déposez vos fichiers dans le dossier `projets/` de
-  l'hôte, puis dans OrcaSlicer ouvrez `/projets/...`. Vous pouvez aussi
-  utiliser le panneau latéral du bureau web (icône de fichiers) pour envoyer
-  ou télécharger des fichiers depuis le navigateur.
-- **Exporter le G-code** : enregistrez-le dans `/projets`. Il apparaît aussitôt
-  dans `projets/` sur le Mac ou le NAS. Copiez-le ensuite sur la carte SD de
-  la X2.
-- Vos profils et réglages sont conservés dans `data/config/`.
+Les fichiers passent **uniquement par le navigateur**, via la page
+**Fichiers** (http://localhost:3002) :
+
+1. **Envoyer un modèle** : sur la page Fichiers, glissez-déposez vos STL, 3MF
+   ou OBJ, ou cliquez sur la zone pour les choisir.
+2. **L'ouvrir dans OrcaSlicer** : *Fichier → Importer*, dossier **`/echange`**.
+3. **Exporter le G-code** : enregistrez-le aussi dans **`/echange`**.
+4. **Le récupérer** : sur la page Fichiers, cliquez sur *Actualiser* puis sur
+   *Télécharger*. Copiez-le ensuite sur la carte SD de la X2.
+
+La page permet aussi de créer des dossiers et de supprimer des fichiers.
+Les profils, les réglages et le dossier `/echange` sont conservés dans des
+volumes Docker internes (`slicer3d_slicer-config`, `slicer3d_echange`) : ils
+survivent aux redémarrages et aux mises à jour. Seul
+`docker compose down -v` les efface.
 
 ## Vérifier l'isolation
 
 ```sh
 ./verifier-isolation.sh
 ```
-Le script lance `curl` vers Internet **depuis** le conteneur du slicer. Les
-deux tests doivent échouer (« OK : Internet inaccessible »). Vous pouvez aussi
+Le script tente d'accéder à Internet **depuis** les conteneurs du slicer et
+des fichiers : tous les tests doivent afficher « OK ». Il vérifie aussi
+qu'aucun dossier du Mac ou du NAS n'est monté dans le slicer. Vous pouvez aussi
 vérifier à la main :
 ```sh
 docker network inspect slicer3d_isole --format '{{.Internal}}'   # doit afficher true
@@ -163,8 +178,11 @@ docker compose pull && docker compose up -d   # mettre à jour (hôte avec Inter
 
 - Le slicer n'a aucune route réseau vers l'extérieur (`internal: true`), ne
   publie aucun port et n'est joignable qu'à travers le proxy.
+- Le service fichiers est lui aussi enfermé dans le réseau isolé. Il ne voit
+  que le volume d'échange, jamais le disque du Mac ou du NAS.
 - Le proxy ne fait que relayer les connexions entrantes. Il tourne avec
   `no-new-privileges`, et sa configuration est montée en lecture seule.
 - Sur le Mac, l'écoute est limitée à `127.0.0.1`. Sur le Synology, mettez un
-  mot de passe (`SLICER_USER` / `SLICER_PASSWORD`) et n'ouvrez pas ces ports
+  mot de passe (`SLICER_USER` / `SLICER_PASSWORD`, valable aussi pour la page
+  Fichiers) et n'ouvrez pas ces ports
   sur votre box.
