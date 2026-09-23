@@ -4,8 +4,13 @@
 navigateur web, **sans aucun accès à Internet**. Fonctionne avec **Docker
 Desktop pour Mac** et **Synology (Container Manager)**.
 
+Deux paquets sont publiés dans les Releases GitHub :
+- **`hors-ligne`**, pour le Mac sans Internet : tout est dans le zip.
+- **`synology`**, pour le NAS avec Internet : les images sont téléchargées par
+  le NAS.
+
 **Tout repose sur `docker compose`**. Il n'y a aucun script `.sh` ou `.command`
-à exécuter, et rien n'est téléchargé.
+à exécuter. Pour le Mac, rien n'est téléchargé.
 
 ```
  Navigateur ──► proxy (nginx) ──[réseau "isole", internal: true]──► orcaslicer
@@ -65,23 +70,34 @@ Par défaut, l'accès est limité au Mac lui-même (`BIND_IP=127.0.0.1`).
 
 ## Installation sur Synology (Container Manager, DSM 7.2+)
 
-1. Dans **File Station**, créez `docker/slicer3d` et copiez-y le contenu du
-   dossier `slicer3d-hors-ligne`.
-2. Modifiez le fichier `.env` avec l'éditeur de texte de DSM :
+Le Synology a Internet : il utilise un **paquet dédié**, plus léger, qui
+télécharge directement les images officielles. Les **conteneurs** restent
+quand même sans Internet, grâce au même réseau isolé. Ce paquet est compatible
+avec le moteur de construction de Container Manager.
+
+1. Téléchargez `slicer3d-synology.zip` depuis la page
+   **Releases → « synology »** du dépôt GitHub.
+2. Dans **File Station**, créez le dossier `docker/slicer3d` et copiez-y le
+   **contenu** du dossier `slicer3d-synology` : `docker-compose.yml`, `.env`,
+   `proxy/`, `fichiers/`… Pour voir `.env` dans File Station, activez
+   l'affichage des fichiers cachés.
+3. Ouvrez `.env` avec l'éditeur de texte de DSM et définissez un mot de passe :
    ```
-   BIND_IP=0.0.0.0
    SLICER_USER=moi
    SLICER_PASSWORD=unMotDePasseSolide
-   PUID=1026
-   PGID=100
    ```
-   (`PUID` / `PGID` : l'UID et le GID de votre utilisateur DSM.)
-3. **Container Manager → Projet → Créer**. Choisissez le chemin
+   Les autres valeurs sont déjà réglées pour un Synology (`BIND_IP=0.0.0.0`,
+   `PUID=1026`, `PGID=100`).
+4. **Container Manager → Projet → Créer**. Choisissez le chemin
    `docker/slicer3d` et « Utiliser le docker-compose.yml existant », puis
-   lancez le projet. Container Manager construit les images depuis `images/`.
-4. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001** pour le
+   lancez le projet. Le NAS télécharge les images, ce qui prend quelques
+   minutes la première fois.
+5. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001** pour le
    slicer. Acceptez l'avertissement du certificat auto-signé. Les fichiers
    sont sur **http://IP-DU-NAS:3002**.
+
+Dans le dépôt git, ce paquet correspond à `docker-compose.synology.yml` (et
+aux `Dockerfile` des dossiers `proxy/` et `fichiers/`).
 
 > **Pourquoi HTTPS depuis une autre machine ?** Le bureau web a besoin d'un
 > « contexte sécurisé » du navigateur. `http://localhost` en est un, mais
