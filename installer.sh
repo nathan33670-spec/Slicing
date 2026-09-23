@@ -19,7 +19,6 @@ else
 fi
 
 [ -f .env ] || cp .env.example .env
-mkdir -p data/config projets
 
 docker compose up -d --pull never
 
@@ -27,8 +26,10 @@ docker compose up -d --pull never
 echo
 echo "Slicer démarré."
 if [ "${BIND_IP:-127.0.0.1}" = "127.0.0.1" ]; then
-    echo "Ouvrez : http://localhost:${HTTP_PORT:-3000}"
+    echo "Slicer   : http://localhost:${HTTP_PORT:-3000}"
+    echo "Fichiers : http://localhost:${FILES_PORT:-3002}"
 else
     echo "Depuis cette machine : http://localhost:${HTTP_PORT:-3000}"
     echo "Depuis le réseau     : https://<IP-de-cette-machine>:${HTTPS_PORT:-3001}"
+    echo "Fichiers             : http://<IP-de-cette-machine>:${FILES_PORT:-3002}"
 fi

@@ -19,4 +19,17 @@ fi
 
 echo "Test 3 : réseaux du conteneur :"
 docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}  - {{$k}}{{"\n"}}{{end}}' "$C"
+echo "Test 4 : aucun dossier de l'hôte monté dans le slicer :"
+if docker inspect -f '{{range .Mounts}}{{.Type}} {{end}}' "$C" | grep -q bind; then
+    echo "  ÉCHEC : un dossier de l'hôte est monté !"; exit 1
+else
+    echo "  OK : uniquement des volumes Docker internes."
+fi
+
+echo "Test 5 : le service fichiers n'a pas Internet non plus ..."
+if docker exec slicer3d-fichiers wget -q -T 8 -O /dev/null http://1.1.1.1; then
+    echo "  ÉCHEC : le service fichiers a accès à Internet !"; exit 1
+else
+    echo "  OK."
+fi
 echo "Tout est bon : le slicer est isolé."

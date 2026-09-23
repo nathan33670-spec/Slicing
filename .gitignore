@@ -1,6 +1,3 @@
 .env
-data/
-projets/*
-!projets/.gitkeep
-slicer3d-images.tar
 images/
+slicer3d-images.tar

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fichiers du slicer</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #6b7280;
+    --line: #e3e6eb; --accent: #2563eb; --accent-text: #ffffff; --danger: #c62828;
+    --drop: #e8f0fe;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --card: #1d2128; --text: #e7e9ee; --muted: #9aa3b2;
+      --line: #2e343d; --accent: #4f8cff; --accent-text: #0b1020; --danger: #ef6b6b;
+      --drop: #1f2a3d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.aide { color: var(--muted); margin: 0 0 20px; }
+  code { background: var(--line); padding: 1px 5px; border-radius: 4px; }
+  .carte { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  #zone { padding: 28px 16px; text-align: center; border-style: dashed; border-width: 2px;
+          margin-bottom: 16px; cursor: pointer; }
+  #zone.survol { background: var(--drop); border-color: var(--accent); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+           padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  button.principal { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.suppr { color: var(--danger); }
+  .barre { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 14px;
+           border-bottom: 1px solid var(--line); }
+  #chemin { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #chemin a { color: var(--accent); text-decoration: none; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.nom { overflow-wrap: anywhere; }
+  td.nom a { color: var(--text); text-decoration: none; }
+  td.nom a:hover { text-decoration: underline; }
+  td.taille, td.date { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions a { margin-right: 10px; color: var(--accent); text-decoration: none; }
+  .vide { padding: 24px; text-align: center; color: var(--muted); }
+  #envois div { font-size: 13px; color: var(--muted); margin: 4px 0; }
+  progress { width: 160px; vertical-align: middle; }
+  @media (max-width: 600px) { td.date { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fichiers du slicer</h1>
+  <p class="aide">
+    Envoyez ici vos modèles (STL, 3MF, OBJ…). Dans OrcaSlicer, ils se trouvent dans
+    <code>/echange</code>. Enregistrez le G-code dans <code>/echange</code>, puis
+    téléchargez-le ici.
+  </p>
+
+  <div id="zone" class="carte">
+    <strong>Glissez-déposez vos fichiers ici</strong><br>
+    <span class="aide">ou cliquez pour les choisir</span>
+    <input id="choix" type="file" multiple hidden>
+  </div>
+  <div id="envois"></div>
+
+  <div class="carte">
+    <div class="barre">
+      <div id="chemin"></div>
+      <button id="nouveau">Nouveau dossier</button>
+      <button id="actualiser" class="principal">Actualiser</button>
+    </div>
+    <table><tbody id="liste"></tbody></table>
+  </div>
+</main>
+
+<script>
+  let dossier = "";   // chemin courant, ex. "" ou "pieces/"
+
+  const url = (base, chemin) =>
+    base + chemin.split("/").map(encodeURIComponent).join("/");
+
+  function taille(o) {
+    if (o == null) return "";
+    const u = ["o", "Ko", "Mo", "Go"]; let i = 0;
+    while (o >= 1024 && i < u.length - 1) { o /= 1024; i++; }
+    return (i ? o.toFixed(1) : o) + " " + u[i];
+  }
+
+  function fil() {
+    const el = document.getElementById("chemin");
+    el.textContent = "";
+    const racine = document.createElement("a");
+    racine.href = "#"; racine.textContent = "/echange";
+    racine.onclick = e => { e.preventDefault(); aller(""); };
+    el.append(racine);
+    let cumul = "";
+    for (const p of dossier.split("/").filter(Boolean)) {
+      cumul += p + "/";
+      const cible = cumul;
+      const a = document.createElement("a");
+      a.href = "#"; a.textContent = p;
+      a.onclick = e => { e.preventDefault(); aller(cible); };
+      el.append(" / ", a);
+    }
+  }
+
+  async function aller(d) { dossier = d; await lister(); }
+
+  async function lister() {
+    fil();
+    const corps = document.getElementById("liste");
+    let items;
+    try {
+      const r = await fetch(url("api/", dossier), { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      items = await r.json();
+    } catch (e) {
+      corps.innerHTML = '<tr><td class="vide">Impossible de lire le dossier (' + e.message + ").</td></tr>";
+      return;
+    }
+    items.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1));
+    corps.textContent = "";
+    if (!items.length) {
+      corps.innerHTML = '<tr><td class="vide">Dossier vide.</td></tr>';
+      return;
+    }
+    for (const it of items) {
+      const chemin = dossier + it.name + (it.type === "directory" ? "/" : "");
+      const tr = document.createElement("tr");
+      const nom = document.createElement("td"); nom.className = "nom";
+      const a = document.createElement("a");
+      if (it.type === "directory") {
+        a.href = "#"; a.textContent = "📁 " + it.name;
+        a.onclick = e => { e.preventDefault(); aller(chemin); };
+      } else {
+        a.href = url("telecharger/", chemin); a.textContent = "📄 " + it.name;
+      }
+      nom.append(a);
+      const t = document.createElement("td"); t.className = "taille"; t.textContent = taille(it.size);
+      const d = document.createElement("td"); d.className = "date";
+      d.textContent = new Date(it.mtime).toLocaleString("fr-FR");
+      const act = document.createElement("td"); act.className = "actions";
+      if (it.type !== "directory") {
+        const dl = document.createElement("a");
+        dl.href = url("telecharger/", chemin); dl.textContent = "Télécharger";
+        act.append(dl);
+      }
+      const sup = document.createElement("button"); sup.className = "suppr"; sup.textContent = "Supprimer";
+      sup.onclick = async () => {
+        if (!confirm("Supprimer « " + it.name + " » ?")) return;
+        const r = await fetch(url("api/", chemin), { method: "DELETE" });
+        if (!r.ok) alert("Suppression impossible (" + r.status + ").");
+        lister();
+      };
+      act.append(sup);
+      tr.append(nom, t, d, act);
+      corps.append(tr);
+    }
+  }
+
+  function envoyer(fichier) {
+    return new Promise(resolve => {
+      const ligne = document.createElement("div");
+      const barre = document.createElement("progress"); barre.max = 100; barre.value = 0;
+      ligne.append(fichier.name + " ", barre);
+      document.getElementById("envois").append(ligne);
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", url("api/", dossier + fichier.name));
+      xhr.upload.onprogress = e => { if (e.lengthComputable) barre.value = 100 * e.loaded / e.total; };
+      xhr.onload = () => {
+        ligne.textContent = fichier.name + (xhr.status < 300 ? " : envoyé ✔" : " : échec (" + xhr.status + ")");
+        setTimeout(() => ligne.remove(), 4000);
+        resolve();
+      };
+      xhr.onerror = () => { ligne.textContent = fichier.name + " : échec réseau"; resolve(); };
+      xhr.send(fichier);
+    });
+  }
+
+  async function envoyerTout(liste) {
+    for (const f of liste) await envoyer(f);
+    lister();
+  }
+
+  const zone = document.getElementById("zone"), choix = document.getElementById("choix");
+  zone.onclick = () => choix.click();
+  choix.onchange = () => { envoyerTout([...choix.files]); choix.value = ""; };
+  zone.ondragover = e => { e.preventDefault(); zone.classList.add("survol"); };
+  zone.ondragleave = () => zone.classList.remove("survol");
+  zone.ondrop = e => {
+    e.preventDefault(); zone.classList.remove("survol");
+    envoyerTout([...e.dataTransfer.files].filter(f => f.size > 0 || f.type));
+  };
+
+  document.getElementById("actualiser").onclick = lister;
+  document.getElementById("nouveau").onclick = async () => {
+    const nom = prompt("Nom du nouveau dossier :");
+    if (!nom || nom.includes("/")) return;
+    const r = await fetch(url("api/", dossier + nom) + "/", { method: "MKCOL" });
+    if (!r.ok) alert("Création impossible (" + r.status + ").");
+    lister();
+  };
+
+  lister();
+</script>
+</body>
+</html>
