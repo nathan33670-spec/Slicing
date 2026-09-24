@@ -70,34 +70,32 @@ Par défaut, l'accès est limité au Mac lui-même (`BIND_IP=127.0.0.1`).
 
 ## Installation sur Synology (Container Manager, DSM 7.2+)
 
-Le Synology a Internet : il utilise un **paquet dédié**, plus léger, qui
-télécharge directement les images officielles. Les **conteneurs** restent
-quand même sans Internet, grâce au même réseau isolé. Ce paquet est compatible
-avec le moteur de construction de Container Manager.
+Le Synology a Internet : il utilise un paquet dédié qui télécharge
+directement les images officielles. Les **conteneurs** restent quand même sans
+Internet, grâce au même réseau isolé.
 
-1. Téléchargez `slicer3d-synology.zip` depuis la page
-   **Releases → « synology »** du dépôt GitHub.
-2. Dans **File Station**, créez le dossier `docker/slicer3d` et copiez-y le
-   **contenu** du dossier `slicer3d-synology` : `docker-compose.yml`, `.env`,
-   `proxy/`, `fichiers/`… Pour voir `.env` dans File Station, activez
-   l'affichage des fichiers cachés.
-3. Ouvrez `.env` avec l'éditeur de texte de DSM et définissez un mot de passe :
-   ```
-   SLICER_USER=moi
-   SLICER_PASSWORD=unMotDePasseSolide
-   ```
-   Les autres valeurs sont déjà réglées pour un Synology (`BIND_IP=0.0.0.0`,
-   `PUID=1026`, `PGID=100`).
-4. **Container Manager → Projet → Créer**. Choisissez le chemin
-   `docker/slicer3d` et « Utiliser le docker-compose.yml existant », puis
-   lancez le projet. Le NAS télécharge les images, ce qui prend quelques
-   minutes la première fois.
+**Un seul fichier suffit : `docker-compose.yml`.** Il n'y a rien à construire,
+ni Dockerfile ni dossier à copier : la configuration et la page Fichiers sont
+intégrées au fichier.
+
+1. Téléchargez `docker-compose.yml` depuis la page **Releases → « synology »**
+   du dépôt GitHub. Le zip `slicer3d-synology.zip` contient le même fichier,
+   plus un `.env` et le README.
+2. Dans **File Station**, créez un dossier vide, par exemple
+   `docker/slicer3d`, et déposez-y `docker-compose.yml`.
+3. **Mot de passe (conseillé)** : dans `docker-compose.yml`, remplacez
+   **partout** (deux fois chacun) `${SLICER_USER:-}` et `${SLICER_PASSWORD:-}`
+   par vos valeurs, par exemple `${SLICER_USER:-moi}`. Vous pouvez aussi déposer à côté le fichier `.env`
+   du zip, avec `SLICER_USER=` et `SLICER_PASSWORD=` remplis.
+4. **Container Manager → Projet → Créer**. Choisissez le dossier et
+   « Utiliser le docker-compose.yml existant », puis lancez le projet. Le NAS
+   télécharge les images, ce qui prend quelques minutes la première fois.
 5. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001** pour le
    slicer. Acceptez l'avertissement du certificat auto-signé. Les fichiers
    sont sur **http://IP-DU-NAS:3002**.
 
-Dans le dépôt git, ce paquet correspond à `docker-compose.synology.yml` (et
-aux `Dockerfile` des dossiers `proxy/` et `fichiers/`).
+Dans le dépôt git, ce fichier est généré à partir de
+`docker-compose.synology.yml` par `.github/scripts/generer-compose-synology.py`.
 
 > **Pourquoi HTTPS depuis une autre machine ?** Le bureau web a besoin d'un
 > « contexte sécurisé » du navigateur. `http://localhost` en est un, mais
