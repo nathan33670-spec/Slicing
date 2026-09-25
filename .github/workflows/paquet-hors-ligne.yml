@@ -92,12 +92,43 @@ jobs:
             --notes "Zip autonome : décompresser, puis dans le Terminal, depuis le dossier : docker compose up -d. Aucun script, aucun téléchargement. Si le zip est en plusieurs parties : cat slicer3d-hors-ligne.zip.part* > slicer3d-hors-ligne.zip" \
             --target "${{ github.sha }}"
 
-  # Variante Synology : le NAS a Internet et télécharge lui-même les images.
-  # Un seul docker-compose.yml, sans construction d'image. Testée avec le
-  # moteur "classique" (celui de Container Manager), puis publiée dans la
-  # Release "synology".
-  synology:
+  # Image OrcaSlicer + VNC (pour Guacamole), publiée sur ghcr.io.
+  image-vnc:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/slicer3d-orcaslicer-vnc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image
+        run: |
+          set -e
+          IMAGE=$(echo "$IMAGE" | tr 'A-Z' 'a-z')
+          docker build --pull \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            -t "$IMAGE:latest" -t "$IMAGE:${{ github.sha }}" orcaslicer-vnc
+
+      - name: Publier sur ghcr.io
+        run: |
+          set -e
+          IMAGE=$(echo "$IMAGE" | tr 'A-Z' 'a-z')
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
+
+  # Variante Synology : le NAS a Internet et télécharge lui-même les images.
+  # Un seul docker-compose.yml, sans construction d'image. Affichage via
+  # Guacamole en HTTP (sans websocket). Testée avec le moteur "classique"
+  # (celui de Container Manager), puis publiée dans la Release "synology".
+  synology:
+    needs: image-vnc
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
     env:
       D: slicer3d-synology
       DOCKER_BUILDKIT: "0"
@@ -114,27 +145,56 @@ jobs:
           sed -e 's/^BIND_IP=.*/BIND_IP=0.0.0.0/' \
               -e 's/^PUID=.*/PUID=1026/' \
               -e 's/^PGID=.*/PGID=100/' .env.example > "$D/.env"
-          cat "$D/.env"
-          # Le compose seul doit se suffire : aucun autre fichier requis.
           ls -la "$D"
 
-      - name: Test - démarrage (moteur classique, comme Container Manager)
+      - name: Test - démarrage et connexion (moteur classique, comme Container Manager)
         run: |
           set -e
           cd "$D"
+          sed -i -e 's/^SLICER_USER=.*/SLICER_USER=test/' \
+                 -e 's/^SLICER_PASSWORD=.*/SLICER_PASSWORD=$$e\&<t/' .env
+          grep ^SLICER .env
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker compose up -d
-          echo "Attente du démarrage du slicer..."
+          echo "Attente de Guacamole..."
           for i in $(seq 1 60); do
-            code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:3001/ || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)
             [ "$code" = 200 ] && break
             sleep 5
           done
-          echo "Slicer (https 3001) : HTTP $code"
           docker compose ps
-          [ "$code" = 200 ]
-          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/)" = 200 ]
+          echo "Guacamole (3000) : HTTP $code"; [ "$code" = 200 ]
+          # Websocket volontairement bloqué -> tunnel HTTP
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/websocket-tunnel)" = 403 ]
+          # Connexion : bon mot de passe accepté, mauvais refusé
+          [ "$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode username=test --data-urlencode 'password=$e&<t' http://127.0.0.1:3000/api/tokens)" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -d 'username=test&password=faux' http://127.0.0.1:3000/api/tokens)" = 403 ]
+          # Le slicer répond en VNC sur le réseau isolé
+          for i in $(seq 1 30); do
+            rfb=$(docker compose run --rm --entrypoint sh verification -c 'nc orcaslicer 5900 </dev/null | head -c 3' 2>/dev/null || true)
+            [ "$rfb" = RFB ] && break
+            sleep 3
+          done
+          echo "VNC : $rfb"; [ "$rfb" = RFB ]
+          sleep 20
+          docker compose logs --tail 15 orcaslicer
+          docker compose exec -T orcaslicer pgrep -f bin/orca-slicer
+          # Page fichiers protégée
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/)" = 401 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -u 'test:$e&<t' http://127.0.0.1:3002/)" = 200 ]
           docker compose run --rm verification
           docker compose down -v
+
+      - name: Vérifier que l'image est téléchargeable sans compte GitHub
+        run: |
+          docker logout ghcr.io || true
+          IMAGE=$(echo "ghcr.io/${{ github.repository_owner }}/slicer3d-orcaslicer-vnc:latest" | tr 'A-Z' 'a-z')
+          docker rmi -f "$IMAGE" >/dev/null 2>&1 || true
+          if docker pull -q "$IMAGE"; then
+            echo "Image publique : OK"
+          else
+            echo "::warning::L'image $IMAGE est privée : rendez-la publique (GitHub → Packages → slicer3d-orcaslicer-vnc → Package settings → Change visibility → Public), sinon le NAS ne pourra pas la télécharger."
+          fi
 
       - name: Publier la Release "synology"
         env:
@@ -145,6 +205,6 @@ jobs:
           mkdir seul && cp "$D/docker-compose.yml" seul/docker-compose.yml
           gh release delete synology --yes --cleanup-tag || true
           gh release create synology "$D.zip" seul/docker-compose.yml \
-            --title "Paquet Synology (OrcaSlicer + Artillery X2)" \
-            --notes "Pour Synology avec Internet. Un seul fichier suffit : docker-compose.yml (à déposer dans le dossier du projet, ou à coller dans Container Manager → Projet → Créer). Le zip ajoute un .env pour le mot de passe et le README. Les images sont téléchargées par le NAS ; les conteneurs restent sans Internet." \
+            --title "Paquet Synology (OrcaSlicer + Artillery X2, via Guacamole)" \
+            --notes "Pour Synology avec Internet. Un seul fichier suffit : docker-compose.yml (à déposer dans le dossier du projet). Slicer : http://IP-DU-NAS:3000 (Guacamole, fonctionne derrière un proxy d'entreprise qui bloque les websockets). Fichiers : http://IP-DU-NAS:3002. Les images sont téléchargées par le NAS ; les conteneurs restent sans Internet." \
             --target "${{ github.sha }}"
