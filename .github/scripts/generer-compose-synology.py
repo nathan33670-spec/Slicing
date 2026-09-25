@@ -77,6 +77,8 @@ print("""\
 #   Internet (réseau "isole" sans passerelle) et sans accès aux dossiers du NAS.
 # - Mot de passe : définissez SLICER_USER / SLICER_PASSWORD (fichier .env à
 #   côté de ce fichier, ou remplacez les valeurs par défaut ci-dessous).
+#   ATTENTION : dans ce fichier, un "$" doit être écrit "$$"
+#   (mot de passe "$abc" -> écrire "$$abc"), sinon il est ignoré.
 # - Slicer  : https://IP-DU-NAS:3001     Fichiers : http://IP-DU-NAS:3002
 """)
 print(yaml.safe_dump(compose, sort_keys=False, allow_unicode=True, width=1000))
