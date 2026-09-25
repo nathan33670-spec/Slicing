@@ -1,6 +1,7 @@
 #!/bin/bash
-# Lance Xvnc (écran virtuel + serveur VNC), Openbox et OrcaSlicer.
-# Le port VNC (5900) n'est joignable que sur le réseau Docker isolé, par guacd.
+# Lance sshd (SFTP), Xvnc (écran virtuel + serveur VNC), Openbox et OrcaSlicer.
+# Les ports VNC (5900) et SFTP (22) ne sont joignables que sur le réseau Docker
+# isolé, par guacd.
 set -e
 
 PUID=${PUID:-1000}
@@ -13,7 +14,14 @@ usermod -o -u "$PUID" abc >/dev/null
 mkdir -p /config/.config /echange
 chown abc:abc /config /config/.config
 chmod 0777 /echange
-umask 000   # fichiers créés modifiables par le service "fichiers"
+umask 000   # fichiers créés modifiables par tous (SFTP, OrcaSlicer)
+
+# SFTP (transfert de fichiers dans Guacamole) : mot de passe partagé avec
+# guacamole via SFTP_PASSWORD, clés d'hôte générées au premier démarrage.
+printf 'abc:%s\n' "${SFTP_PASSWORD:-slicer}" | chpasswd
+ssh-keygen -A >/dev/null
+mkdir -p /run/sshd
+/usr/sbin/sshd
 
 lancer() {  # exécute une commande en tant que "abc"
     runuser -u abc -- env HOME=/config DISPLAY=:1 LC_ALL=C \

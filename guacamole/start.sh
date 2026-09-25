@@ -1,7 +1,8 @@
 #!/bin/bash
 # Démarrage de Guacamole : génère le compte (user-mapping.xml) à partir de
-# SLICER_USER / SLICER_PASSWORD, avec une seule connexion VNC vers le slicer,
-# puis lance l'entrypoint officiel de l'image guacamole/guacamole.
+# SLICER_USER / SLICER_PASSWORD, avec une seule connexion vers le slicer :
+# affichage VNC + transfert de fichiers SFTP (dossier /echange), puis lance
+# l'entrypoint officiel de l'image guacamole/guacamole.
 set -e
 
 xml() {  # échappe une valeur pour XML
@@ -22,6 +23,13 @@ cat > "$GUACAMOLE_HOME/user-mapping.xml" <<XML
       <param name="port">5900</param>
       <param name="color-depth">24</param>
       <param name="cursor">remote</param>
+      <param name="enable-sftp">true</param>
+      <param name="sftp-hostname">orcaslicer</param>
+      <param name="sftp-port">22</param>
+      <param name="sftp-username">abc</param>
+      <param name="sftp-password">$(xml "${SFTP_PASSWORD:-slicer}")</param>
+      <param name="sftp-directory">/echange</param>
+      <param name="sftp-root-directory">/echange</param>
     </connection>
   </authorize>
 </user-mapping>
