@@ -85,7 +85,12 @@ intégrées au fichier.
    `docker/slicer3d`, et déposez-y `docker-compose.yml`.
 3. **Mot de passe (conseillé)** : dans `docker-compose.yml`, remplacez
    **partout** (deux fois chacun) `${SLICER_USER:-}` et `${SLICER_PASSWORD:-}`
-   par vos valeurs, par exemple `${SLICER_USER:-moi}`. Vous pouvez aussi déposer à côté le fichier `.env`
+   par vos valeurs, par exemple `${SLICER_USER:-moi}`.
+   **Attention au caractère `$`** : dans `docker-compose.yml` (comme dans
+   `.env`), écrivez-le `$$`. Par exemple, pour le mot de passe `$abc`, écrivez
+   `$$abc`. Sinon, Docker le prend pour une variable et le mot de passe
+   devient faux. À la connexion, tapez le mot de passe normalement, avec un
+   seul `$`. Vous pouvez aussi déposer à côté le fichier `.env`
    du zip, avec `SLICER_USER=` et `SLICER_PASSWORD=` remplis.
 4. **Container Manager → Projet → Créer**. Choisissez le dossier et
    « Utiliser le docker-compose.yml existant », puis lancez le projet. Le NAS
