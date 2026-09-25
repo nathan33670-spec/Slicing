@@ -124,7 +124,7 @@ websockets. Guacamole affiche OrcaSlicer (VNC) et transfère les fichiers
 - La taille de l'écran d'OrcaSlicer est fixe (`1920x1080` par défaut). Pour la
   changer, modifiez `RESOLUTION` dans le fichier, par exemple `1600x900`.
 - Si le port 3003 est déjà pris, remplacez dans le fichier
-  `${HTTP_PORT:-3003}` par exemple par `${HTTP_PORT:-3010}`, puis ouvrez
+  `${GUACAMOLE_PORT:-3003}` par exemple par `${GUACAMOLE_PORT:-3010}`, puis ouvrez
   `http://IP-DU-NAS:3010`.
 
 Dans le dépôt git, ce fichier est généré à partir de

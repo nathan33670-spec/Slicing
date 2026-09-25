@@ -69,7 +69,7 @@ services:
     depends_on:
       - guacamole
     ports:
-      - "${BIND_IP:-0.0.0.0}:${HTTP_PORT:-3003}:3003"    # Guacamole (slicer + fichiers)
+      - "${BIND_IP:-0.0.0.0}:${GUACAMOLE_PORT:-3003}:3003"    # Guacamole (slicer + fichiers)
     security_opt:
       - no-new-privileges:true
     networks:
