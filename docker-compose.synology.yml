@@ -3,31 +3,32 @@
 # fichier par .github/scripts/generer-compose-synology.py, qui y intègre les
 # fichiers de guacamole/, fichiers/ et proxy/ : un seul fichier sur le NAS.
 #
-#   navigateur ──► [proxy] ──(réseau "isole", internal: true)──► [guacamole] ─► [guacd] ─VNC─► [orcaslicer]
-#                                                             └──► [fichiers]
+#   navigateur ──► [proxy] ──(réseau "isole", internal: true)──► [guacamole] ─► [guacd] ─VNC/SFTP─► [orcaslicer]
 #
-# - Affichage via Apache Guacamole en mode HTTP (sans websocket) : passe les
-#   proxys d'entreprise qui bloquent les websockets.
+# - TOUT passe par Apache Guacamole, en HTTP simple, SANS AUCUN websocket
+#   (passe les proxys d'entreprise) : affichage d'OrcaSlicer (VNC) et
+#   transfert de fichiers (SFTP, dossier /echange).
 # - Le NAS télécharge les images ; les CONTENEURS restent sans Internet
 #   (réseau "isole" sans passerelle) et sans accès aux dossiers du NAS.
 
 name: slicer3d
 
 services:
-  # OrcaSlicer dans un écran virtuel, exposé en VNC (port 5900) sur le seul
-  # réseau isolé. Image construite depuis orcaslicer-vnc/ par GitHub Actions.
+  # OrcaSlicer dans un écran virtuel, exposé en VNC (5900) et SFTP (22) sur le
+  # seul réseau isolé. Image construite depuis orcaslicer-vnc/ par GitHub Actions.
   orcaslicer:
     image: ghcr.io/nathan33670-spec/slicer3d-orcaslicer-vnc:latest
     container_name: slicer3d-orcaslicer
     restart: unless-stopped
     environment:
-      - PUID=${PUID:-1026}
-      - PGID=${PGID:-100}
-      - TZ=${TZ:-Europe/Paris}
-      - RESOLUTION=${RESOLUTION:-1920x1080}
+      PUID: ${PUID:-1026}
+      PGID: ${PGID:-100}
+      TZ: ${TZ:-Europe/Paris}
+      RESOLUTION: ${RESOLUTION:-1920x1080}
+      SFTP_PASSWORD: ${SLICER_PASSWORD:-}
     volumes:
       - slicer-config:/config          # réglages, profils (volume Docker interne)
-      - echange:/echange               # dossier partagé avec le service "fichiers"
+      - echange:/echange               # fichiers échangés via Guacamole (SFTP)
     shm_size: "1gb"
     security_opt:
       - seccomp:unconfined
@@ -55,22 +56,10 @@ services:
       WEBAPP_CONTEXT: ROOT
       SLICER_USER: ${SLICER_USER:-}
       SLICER_PASSWORD: ${SLICER_PASSWORD:-}
+      SFTP_PASSWORD: ${SLICER_PASSWORD:-}
     networks:
       - isole
 
-  # Page web pour envoyer / télécharger des fichiers.
-  fichiers:
-    image: nginx:1.27-alpine
-    container_name: slicer3d-fichiers
-    restart: unless-stopped
-    stop_signal: SIGQUIT
-    environment:
-      SLICER_USER: ${SLICER_USER:-}
-      SLICER_PASSWORD: ${SLICER_PASSWORD:-}
-    volumes:
-      - echange:/echange
-    networks:
-      - isole
 
   # Seul conteneur joignable depuis le réseau local.
   proxy:
@@ -79,10 +68,8 @@ services:
     restart: unless-stopped
     depends_on:
       - guacamole
-      - fichiers
     ports:
-      - "${BIND_IP:-0.0.0.0}:${HTTP_PORT:-3000}:3000"    # slicer (Guacamole)
-      - "${BIND_IP:-0.0.0.0}:${FILES_PORT:-3002}:3002"   # page d'échange de fichiers
+      - "${BIND_IP:-0.0.0.0}:${HTTP_PORT:-3003}:3003"    # Guacamole (slicer + fichiers)
     security_opt:
       - no-new-privileges:true
     networks:

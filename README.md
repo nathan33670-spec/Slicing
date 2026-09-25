@@ -74,48 +74,63 @@ Le Synology a Internet : il utilise un paquet dédié qui télécharge
 directement les images. Les **conteneurs** restent quand même sans Internet,
 grâce au même réseau isolé.
 
-**Affichage via Apache Guacamole, compatible avec les proxys d'entreprise.**
-Le bureau OrcaSlicer passe par de simples requêtes HTTP, sans websocket. Il
-fonctionne donc aussi depuis un poste dont le proxy d'entreprise bloque les
-websockets.
+**Tout passe par Apache Guacamole, en HTTP simple, sans aucun websocket.**
+Cela fonctionne donc aussi derrière un proxy d'entreprise qui bloque les
+websockets. Guacamole affiche OrcaSlicer (VNC) et transfère les fichiers
+(SFTP, dossier `/echange`). Une seule adresse : **http://IP-DU-NAS:3003**.
 
 ```
- navigateur ──► proxy ──[réseau isolé]──► guacamole ─► guacd ─VNC─► orcaslicer
-            (3000 / 3002)            └──► fichiers
+ navigateur ──► proxy :3003 ──[réseau isolé]──► guacamole ─► guacd ─VNC/SFTP─► orcaslicer
 ```
 
-**Un seul fichier suffit : `docker-compose.yml`.** Il n'y a rien à construire,
-ni Dockerfile ni dossier à copier.
+- Le relais injecte au début de la page de Guacamole une ligne qui retire le
+  websocket du navigateur. Guacamole utilise alors uniquement son tunnel
+  HTTP. Par sécurité, l'adresse du websocket est aussi bloquée.
+- Le bureau web d'origine d'OrcaSlicer (Selkies, qui exige un websocket)
+  n'est pas lancé.
+
+**Un seul fichier suffit : `docker-compose.yml`.** Il n'y a rien à construire.
 
 1. Téléchargez `docker-compose.yml` depuis la page **Releases → « synology »**
    du dépôt GitHub.
-2. Dans **File Station**, créez un dossier vide, par exemple
-   `docker/slicer3d`, et déposez-y `docker-compose.yml`.
-3. **Identifiant et mot de passe** : dans `docker-compose.yml`, remplacez
-   **partout** (deux fois chacun) `${SLICER_USER:-}` et `${SLICER_PASSWORD:-}`
-   par vos valeurs, par exemple `${SLICER_USER:-moi}`. Sans valeur, le compte
-   est `slicer` / `slicer`.
-   **Attention au caractère `$`** : dans le fichier, écrivez-le `$$`. Par
-   exemple, pour le mot de passe `$abc`, écrivez `$$abc`. À la connexion,
-   tapez-le normalement, avec un seul `$`.
-4. **Container Manager → Projet → Créer**. Choisissez le dossier et
+2. Dans **File Station**, créez un **nouveau** dossier vide, par exemple
+   `docker/slicer-guacamole`, et déposez-y `docker-compose.yml`.
+3. **Identifiant et mot de passe** : modifiez les 2 lignes en haut du
+   fichier, qui valent `slicer` / `slicer` par défaut :
+   ```yaml
+   x-identifiants:
+     utilisateur: &utilisateur moi
+     mot_de_passe: &mot_de_passe unMotDePasse
+   ```
+   **Attention au caractère `$`** : écrivez-le `$$`. Par exemple, pour le mot
+   de passe `$abc`, écrivez `$$abc`. À la connexion, tapez-le normalement,
+   avec un seul `$`.
+4. **Container Manager → Projet → Créer**. Choisissez ce dossier et
    « Utiliser le docker-compose.yml existant », puis lancez le projet. Le NAS
    télécharge les images, ce qui prend quelques minutes la première fois.
-5. Depuis un PC du réseau :
-   - **slicer** : **http://IP-DU-NAS:3000**. Connectez-vous : OrcaSlicer
-     s'ouvre directement.
-   - **fichiers** : **http://IP-DU-NAS:3002**.
+5. Ouvrez **http://IP-DU-NAS:3003** et connectez-vous : OrcaSlicer s'ouvre
+   directement.
 
-**Astuces Guacamole**
-- **Ctrl + Alt + Maj** (sur Mac : **Ctrl + Cmd + Maj**) ouvre le menu de
-  Guacamole : presse-papiers, clavier virtuel et déconnexion.
+**Fichiers (STL, 3MF, G-code)**
+- **Envoyer** : glissez-déposez le fichier dans la fenêtre du navigateur. Il
+  arrive dans `/echange`. Dans OrcaSlicer : *Fichier → Importer* → `/echange`.
+- **Récupérer** : enregistrez le G-code dans `/echange` depuis OrcaSlicer.
+  Ouvrez ensuite le menu Guacamole (**Ctrl + Alt + Maj** ; sur Mac
+  **Ctrl + Cmd + Maj**), cliquez sur le dossier sous « Appareils », puis
+  double-cliquez sur le fichier pour le télécharger.
+
+**Astuces**
+- Le même menu Guacamole donne accès au presse-papiers et au clavier virtuel.
 - La taille de l'écran d'OrcaSlicer est fixe (`1920x1080` par défaut). Pour la
   changer, modifiez `RESOLUTION` dans le fichier, par exemple `1600x900`.
+- Si le port 3003 est déjà pris, remplacez dans le fichier
+  `${HTTP_PORT:-3003}` par exemple par `${HTTP_PORT:-3010}`, puis ouvrez
+  `http://IP-DU-NAS:3010`.
 
 Dans le dépôt git, ce fichier est généré à partir de
 `docker-compose.synology.yml` par `.github/scripts/generer-compose-synology.py`.
-L'image OrcaSlicer avec VNC (`orcaslicer-vnc/`) est construite par GitHub
-Actions et publiée sur `ghcr.io`.
+L'image OrcaSlicer avec VNC et SFTP (`orcaslicer-vnc/`) est construite par
+GitHub Actions et publiée sur `ghcr.io`.
 
 ---
 

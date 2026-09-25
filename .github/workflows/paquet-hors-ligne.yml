@@ -120,8 +120,8 @@ jobs:
           docker push "$IMAGE:${{ github.sha }}"
 
   # Variante Synology : le NAS a Internet et télécharge lui-même les images.
-  # Un seul docker-compose.yml, sans construction d'image. Affichage via
-  # Guacamole en HTTP (sans websocket). Testée avec le moteur "classique"
+  # Un seul docker-compose.yml, sans construction d'image. Tout passe par
+  # Guacamole en HTTP, sans websocket (affichage VNC + fichiers SFTP). Testée avec le moteur "classique"
   # (celui de Container Manager), puis publiée dans la Release "synology".
   synology:
     needs: image-vnc
@@ -151,37 +151,36 @@ jobs:
         run: |
           set -e
           cd "$D"
-          sed -i -e 's/^SLICER_USER=.*/SLICER_USER=test/' \
-                 -e 's/^SLICER_PASSWORD=.*/SLICER_PASSWORD=$$e\&<t/' .env
-          grep ^SLICER .env
+          # Identifiants de test (dans le fichier, un "$" s'écrit "$$")
+          sed -i -e 's/^  utilisateur: &utilisateur slicer$/  utilisateur: \&utilisateur test/' \
+                 -e 's/^  mot_de_passe: &mot_de_passe slicer$/  mot_de_passe: \&mot_de_passe $$e\&<t/' docker-compose.yml
+          grep -A2 '^x-identifiants' docker-compose.yml
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           docker compose up -d
           echo "Attente de Guacamole..."
           for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode username=test --data-urlencode 'password=$e&<t' http://127.0.0.1:3003/api/tokens || true)
             [ "$code" = 200 ] && break
             sleep 5
           done
           docker compose ps
-          echo "Guacamole (3000) : HTTP $code"; [ "$code" = 200 ]
-          # Websocket volontairement bloqué -> tunnel HTTP
-          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/websocket-tunnel)" = 403 ]
-          # Connexion : bon mot de passe accepté, mauvais refusé
-          [ "$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode username=test --data-urlencode 'password=$e&<t' http://127.0.0.1:3000/api/tokens)" = 200 ]
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -d 'username=test&password=faux' http://127.0.0.1:3000/api/tokens)" = 403 ]
-          # Le slicer répond en VNC sur le réseau isolé
+          echo "Connexion (3003) : HTTP $code"; [ "$code" = 200 ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -d 'username=test&password=faux' http://127.0.0.1:3003/api/tokens)" = 403 ]
+          # Aucun websocket : retiré du navigateur (ligne injectée) + adresse bloquée
+          curl -s http://127.0.0.1:3003/ | grep -q 'window.WebSocket=undefined'
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3003/websocket-tunnel)" = 403 ]
+          # Le slicer répond en VNC et en SFTP sur le réseau isolé
           for i in $(seq 1 30); do
             rfb=$(docker compose run --rm --entrypoint sh verification -c 'nc orcaslicer 5900 </dev/null | head -c 3' 2>/dev/null || true)
             [ "$rfb" = RFB ] && break
             sleep 3
           done
           echo "VNC : $rfb"; [ "$rfb" = RFB ]
+          ssh=$(docker compose run --rm --entrypoint sh verification -c 'nc orcaslicer 22 </dev/null | head -c 3' 2>/dev/null || true)
+          echo "SFTP : $ssh"; [ "$ssh" = SSH ]
           sleep 20
           docker compose logs --tail 15 orcaslicer
           docker compose exec -T orcaslicer pgrep -f bin/orca-slicer
-          # Page fichiers protégée
-          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/)" = 401 ]
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -u 'test:$e&<t' http://127.0.0.1:3002/)" = 200 ]
           docker compose run --rm verification
           docker compose down -v
 
@@ -206,5 +205,5 @@ jobs:
           gh release delete synology --yes --cleanup-tag || true
           gh release create synology "$D.zip" seul/docker-compose.yml \
             --title "Paquet Synology (OrcaSlicer + Artillery X2, via Guacamole)" \
-            --notes "Pour Synology avec Internet. Un seul fichier suffit : docker-compose.yml (à déposer dans le dossier du projet). Slicer : http://IP-DU-NAS:3000 (Guacamole, fonctionne derrière un proxy d'entreprise qui bloque les websockets). Fichiers : http://IP-DU-NAS:3002. Les images sont téléchargées par le NAS ; les conteneurs restent sans Internet." \
+            --notes "Pour Synology avec Internet. Un seul fichier suffit : docker-compose.yml (identifiant et mot de passe à modifier en haut du fichier). Ouvrir http://IP-DU-NAS:3003 : tout passe par Guacamole en HTTP, SANS websocket (compatible proxy d'entreprise) - OrcaSlicer et fichiers (glisser-déposer pour envoyer, menu Ctrl+Alt+Maj pour télécharger). Les images sont téléchargées par le NAS ; les conteneurs restent sans Internet." \
             --target "${{ github.sha }}"
