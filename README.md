@@ -71,43 +71,51 @@ Par défaut, l'accès est limité au Mac lui-même (`BIND_IP=127.0.0.1`).
 ## Installation sur Synology (Container Manager, DSM 7.2+)
 
 Le Synology a Internet : il utilise un paquet dédié qui télécharge
-directement les images officielles. Les **conteneurs** restent quand même sans
-Internet, grâce au même réseau isolé.
+directement les images. Les **conteneurs** restent quand même sans Internet,
+grâce au même réseau isolé.
+
+**Affichage via Apache Guacamole, compatible avec les proxys d'entreprise.**
+Le bureau OrcaSlicer passe par de simples requêtes HTTP, sans websocket. Il
+fonctionne donc aussi depuis un poste dont le proxy d'entreprise bloque les
+websockets.
+
+```
+ navigateur ──► proxy ──[réseau isolé]──► guacamole ─► guacd ─VNC─► orcaslicer
+            (3000 / 3002)            └──► fichiers
+```
 
 **Un seul fichier suffit : `docker-compose.yml`.** Il n'y a rien à construire,
-ni Dockerfile ni dossier à copier : la configuration et la page Fichiers sont
-intégrées au fichier.
+ni Dockerfile ni dossier à copier.
 
 1. Téléchargez `docker-compose.yml` depuis la page **Releases → « synology »**
-   du dépôt GitHub. Le zip `slicer3d-synology.zip` contient le même fichier,
-   plus un `.env` et le README.
+   du dépôt GitHub.
 2. Dans **File Station**, créez un dossier vide, par exemple
    `docker/slicer3d`, et déposez-y `docker-compose.yml`.
-3. **Mot de passe (conseillé)** : dans `docker-compose.yml`, remplacez
+3. **Identifiant et mot de passe** : dans `docker-compose.yml`, remplacez
    **partout** (deux fois chacun) `${SLICER_USER:-}` et `${SLICER_PASSWORD:-}`
-   par vos valeurs, par exemple `${SLICER_USER:-moi}`.
-   **Attention au caractère `$`** : dans `docker-compose.yml` (comme dans
-   `.env`), écrivez-le `$$`. Par exemple, pour le mot de passe `$abc`, écrivez
-   `$$abc`. Sinon, Docker le prend pour une variable et le mot de passe
-   devient faux. À la connexion, tapez le mot de passe normalement, avec un
-   seul `$`. Vous pouvez aussi déposer à côté le fichier `.env`
-   du zip, avec `SLICER_USER=` et `SLICER_PASSWORD=` remplis.
+   par vos valeurs, par exemple `${SLICER_USER:-moi}`. Sans valeur, le compte
+   est `slicer` / `slicer`.
+   **Attention au caractère `$`** : dans le fichier, écrivez-le `$$`. Par
+   exemple, pour le mot de passe `$abc`, écrivez `$$abc`. À la connexion,
+   tapez-le normalement, avec un seul `$`.
 4. **Container Manager → Projet → Créer**. Choisissez le dossier et
    « Utiliser le docker-compose.yml existant », puis lancez le projet. Le NAS
    télécharge les images, ce qui prend quelques minutes la première fois.
-5. Depuis un PC du réseau, ouvrez **https://IP-DU-NAS:3001** pour le
-   slicer. Acceptez l'avertissement du certificat auto-signé. Les fichiers
-   sont sur **http://IP-DU-NAS:3002**.
+5. Depuis un PC du réseau :
+   - **slicer** : **http://IP-DU-NAS:3000**. Connectez-vous : OrcaSlicer
+     s'ouvre directement.
+   - **fichiers** : **http://IP-DU-NAS:3002**.
+
+**Astuces Guacamole**
+- **Ctrl + Alt + Maj** (sur Mac : **Ctrl + Cmd + Maj**) ouvre le menu de
+  Guacamole : presse-papiers, clavier virtuel et déconnexion.
+- La taille de l'écran d'OrcaSlicer est fixe (`1920x1080` par défaut). Pour la
+  changer, modifiez `RESOLUTION` dans le fichier, par exemple `1600x900`.
 
 Dans le dépôt git, ce fichier est généré à partir de
 `docker-compose.synology.yml` par `.github/scripts/generer-compose-synology.py`.
-
-> **Pourquoi HTTPS depuis une autre machine ?** Le bureau web a besoin d'un
-> « contexte sécurisé » du navigateur. `http://localhost` en est un, mais
-> `http://IP-du-NAS` n'en est pas un.
-
-Si le port 3000, 3001 ou 3002 est déjà pris, changez `HTTP_PORT`,
-`HTTPS_PORT` ou `FILES_PORT` dans `.env`.
+L'image OrcaSlicer avec VNC (`orcaslicer-vnc/`) est construite par GitHub
+Actions et publiée sur `ghcr.io`.
 
 ---
 
